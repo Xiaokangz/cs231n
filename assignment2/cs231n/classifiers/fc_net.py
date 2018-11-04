@@ -179,6 +179,9 @@ class FullyConnectedNet(object):
         for i, temp_dim in enumerate(hidden_dims):
             self.params["W"+str(i+1)] = np.random.randn(prev_dim, temp_dim) * weight_scale
             self.params["b"+str(i+1)] = np.zeros(temp_dim)
+            if self.use_batchnorm:
+                self.params["gamma"+str(i+1)] = np.ones(temp_dim)
+                self.params["beta"+str(i+1)] = np.zeros(temp_dim)
             prev_dim = temp_dim
         self.params["W"+str(self.num_layers)] = np.random.randn(prev_dim, num_classes) * weight_scale
         self.params["b"+str(self.num_layers)] = np.zeros(num_classes)
@@ -242,7 +245,14 @@ class FullyConnectedNet(object):
         caches = {}
         scores = X
         for i in range(1, self.num_layers):
-            scores, caches["c"+str(i)] = affine_relu_forward(scores, self.params["W"+str(i)], self.params["b"+str(i)])
+            if self.use_dropout:
+                scores, caches["d"+str(i)] = dropout_forward(scores, self.dropout_param)
+            if self.use_batchnorm:
+                scores, caches["c"+str(i)] = affine_bn_relu_forward(scores, self.params["W"+str(i)], self.params["b"+str(i)], self.params["gamma"+str(i)], self.params["beta"+str(i)], self.bn_params[i-1])
+            else:
+                scores, caches["c"+str(i)] = affine_relu_forward(scores, self.params["W"+str(i)], self.params["b"+str(i)])
+        if self.use_dropout:
+            scores, caches["d"+str(self.num_layers)] = dropout_forward(scores, self.dropout_param)
         scores, caches["c"+str(self.num_layers)] = affine_forward(scores, self.params["W"+str(self.num_layers)], self.params["b"+str(self.num_layers)])
         
         ############################################################################
@@ -269,8 +279,15 @@ class FullyConnectedNet(object):
         ############################################################################
         loss, dscores = softmax_loss(scores, y)
         dscores, grads["W"+str(self.num_layers)], grads["b"+str(self.num_layers)] = affine_backward(dscores, caches["c"+str(self.num_layers)])
+        if self.use_dropout:
+            dscores = dropout_backward(dscores, caches["d"+str(self.num_layers)])
         for i in range(self.num_layers-1, 0, -1):
-            dscores, grads["W"+str(i)], grads["b"+str(i)] = affine_relu_backward(dscores, caches["c"+str(i)])
+            if self.use_batchnorm:
+                dscores, grads["W"+str(i)], grads["b"+str(i)], grads["gamma"+str(i)], grads["beta"+str(i)] = affine_bn_relu_backward(dscores, caches["c"+str(i)])
+            else:
+                dscores, grads["W"+str(i)], grads["b"+str(i)] = affine_relu_backward(dscores, caches["c"+str(i)])
+            if self.use_dropout:
+                dscores = dropout_backward(dscores, caches["d"+str(i)])
             grads["W"+str(i)] += self.reg * self.params["W"+str(i)]
             loss += 0.5 * self.reg * np.sum(self.params["W"+str(i)] * self.params["W"+str(i)])
             
