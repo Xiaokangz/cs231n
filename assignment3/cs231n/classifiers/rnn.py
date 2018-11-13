@@ -137,7 +137,24 @@ class CaptioningRNN(object):
         # defined above to store loss and gradients; grads[k] should give the      #
         # gradients for self.params[k].                                            #
         ############################################################################
-        pass
+        h0 = np.dot(features, W_proj) + b_proj
+        x, cache1 = word_embedding_forward(captions_in, W_embed)
+        h, cache2 = rnn_forward(x, h0, Wx, Wh, b)
+        scores, cache3 = temporal_affine_forward(h, W_vocab, b_vocab)
+        loss, dscores = temporal_softmax_loss(scores, captions_out, mask, verbose=False)
+        dh, dW_vocab, db_vocab = temporal_affine_backward(dscores, cache3)
+        dx, dh0, dWx, dWh, db = rnn_backward(dh, cache2)
+        dW_embed = word_embedding_backward(dx, cache1)
+        dW_proj = np.dot(features.T, dh0)
+        db_proj = np.sum(dh0, axis=0)
+        grads['W_embed'] = dW_embed
+        grads['W_proj'] = dW_proj
+        grads['b_proj'] = db_proj
+        grads['Wx'] = dWx
+        grads['Wh'] = dWh
+        grads['b'] = db
+        grads['W_vocab'] = dW_vocab
+        grads['b_vocab'] = db_vocab
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################
@@ -177,7 +194,6 @@ class CaptioningRNN(object):
         W_embed = self.params['W_embed']
         Wx, Wh, b = self.params['Wx'], self.params['Wh'], self.params['b']
         W_vocab, b_vocab = self.params['W_vocab'], self.params['b_vocab']
-
         ###########################################################################
         # TODO: Implement test-time sampling for the model. You will need to      #
         # initialize the hidden state of the RNN by applying the learned affine   #
@@ -199,7 +215,18 @@ class CaptioningRNN(object):
         # functions; you'll need to call rnn_step_forward or lstm_step_forward in #
         # a loop.                                                                 #
         ###########################################################################
-        pass
+        prev_h = np.dot(features, W_proj) + b_proj
+        prev_word = self._start * np.ones(N, dtype=np.int32)
+        
+        for i in range(max_length):
+            x = W_embed[prev_word]
+            next_h, _ = rnn_step_forward(x, prev_h, Wx, Wh, b)
+            scores = np.dot(next_h, W_vocab) + b_vocab
+            p = np.exp(scores) / np.sum(np.exp(scores), axis=1).reshape(-1, 1)
+            next_word = np.argmax(p, axis=1)
+            captions[:, i] = next_word
+            prev_h = next_h
+            prev_word = next_word
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################
