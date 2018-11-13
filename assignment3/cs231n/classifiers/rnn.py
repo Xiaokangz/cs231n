@@ -139,11 +139,17 @@ class CaptioningRNN(object):
         ############################################################################
         h0 = np.dot(features, W_proj) + b_proj
         x, cache1 = word_embedding_forward(captions_in, W_embed)
-        h, cache2 = rnn_forward(x, h0, Wx, Wh, b)
+        if self.cell_type == 'rnn':
+            h, cache2 = rnn_forward(x, h0, Wx, Wh, b)
+        else:
+            h, cache2 = lstm_forward(x, h0, Wx, Wh, b)
         scores, cache3 = temporal_affine_forward(h, W_vocab, b_vocab)
         loss, dscores = temporal_softmax_loss(scores, captions_out, mask, verbose=False)
         dh, dW_vocab, db_vocab = temporal_affine_backward(dscores, cache3)
-        dx, dh0, dWx, dWh, db = rnn_backward(dh, cache2)
+        if self.cell_type == 'rnn':
+            dx, dh0, dWx, dWh, db = rnn_backward(dh, cache2)
+        else:
+            dx, dh0, dWx, dWh, db = lstm_backward(dh, cache2)
         dW_embed = word_embedding_backward(dx, cache1)
         dW_proj = np.dot(features.T, dh0)
         db_proj = np.sum(dh0, axis=0)
@@ -215,17 +221,24 @@ class CaptioningRNN(object):
         # functions; you'll need to call rnn_step_forward or lstm_step_forward in #
         # a loop.                                                                 #
         ###########################################################################
+        H = b_proj.shape[0]
         prev_h = np.dot(features, W_proj) + b_proj
         prev_word = self._start * np.ones(N, dtype=np.int32)
-        
+        if self.cell_type == 'lstm':
+            prev_c = np.zeros((N, H))
         for i in range(max_length):
             x = W_embed[prev_word]
-            next_h, _ = rnn_step_forward(x, prev_h, Wx, Wh, b)
+            if self.cell_type == 'rnn':
+                next_h, _ = rnn_step_forward(x, prev_h, Wx, Wh, b)
+            else:
+                next_h, next_c, _ = lstm_step_forward(x, prev_h, prev_c, Wx, Wh, b)
             scores = np.dot(next_h, W_vocab) + b_vocab
             p = np.exp(scores) / np.sum(np.exp(scores), axis=1).reshape(-1, 1)
             next_word = np.argmax(p, axis=1)
             captions[:, i] = next_word
             prev_h = next_h
+            if self.cell_type == 'lstm':
+                prev_c = next_c
             prev_word = next_word
         ############################################################################
         #                             END OF YOUR CODE                             #
